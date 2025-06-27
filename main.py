@@ -1,33 +1,20 @@
 from fastapi import FastAPI, UploadFile, File
-import mediapipe as mp
-import cv2
-import numpy as np
-import uvicorn
+from fastapi.responses import JSONResponse
+import mediapipe as mp, cv2, numpy as np
 
 app = FastAPI()
+mp_hands = mp.solutions.hands
 
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose()
-
-@app.post("/detect_pose/")
-async def detect_pose(file: UploadFile = File(...)):
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-    results = pose.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    
-    landmarks_response = []
-    if results.pose_landmarks:
-        for idx, lm in enumerate(results.pose_landmarks.landmark):
-            landmarks_response.append({
-                "index": idx,
-                "x": lm.x,
-                "y": lm.y,
-                "z": lm.z,
-                "visibility": lm.visibility
-            })
-    return {"landmarks": landmarks_response}
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+@app.post("/process")
+async def process(file: UploadFile = File(...)):
+    data = await file.read()
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    with mp_hands.Hands(static_image_mode=True, max_num_hands=1) as hands:
+        res = hands.process(img)
+    if not res.multi_hand_landmarks:
+        return JSONResponse({"hands": []})
+    coords = []
+    for lm in res.multi_hand_landmarks[0].landmark:
+        coords.append({"x": lm.x, "y": lm.y, "z": lm.z})
+    return JSONResponse({"hands": [coords]})
